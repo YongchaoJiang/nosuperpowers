@@ -13,8 +13,15 @@ const db = low(adapter);
 db.defaults({
   articles: [],
   users: [],
-  meta: { nextArticleId: 1 }
+  comments: [],
+  meta: { nextArticleId: 1, nextCommentId: 1 }
 }).write();
+
+// db.defaults() merges shallowly (lodash.defaults), so an existing top-level
+// "meta" object from before this feature won't pick up nextCommentId on its own.
+if (db.get('meta.nextCommentId').value() === undefined) {
+  db.set('meta.nextCommentId', 1).write();
+}
 
 // Create default admin if not exists
 const adminExists = db.get('users').find({ username: 'admin' }).value();
@@ -60,6 +67,34 @@ function nextId() {
   const id = db.get('meta.nextArticleId').value();
   db.set('meta.nextArticleId', id + 1).write();
   return id;
+}
+
+function nextCommentId() {
+  const id = db.get('meta.nextCommentId').value();
+  db.set('meta.nextCommentId', id + 1).write();
+  return id;
+}
+
+// ─── Comment rate limiting (in-memory, resets on restart) ────────────────────
+const COMMENT_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
+const COMMENT_RATE_LIMIT_MAX = 3;
+const commentSubmissionsByIp = new Map();
+
+function isCommentRateLimited(ip) {
+  const cutoff = Date.now() - COMMENT_RATE_LIMIT_WINDOW_MS;
+  const recent = (commentSubmissionsByIp.get(ip) || []).filter(t => t > cutoff);
+  commentSubmissionsByIp.set(ip, recent);
+  return recent.length >= COMMENT_RATE_LIMIT_MAX;
+}
+
+function recordCommentSubmission(ip) {
+  const recent = commentSubmissionsByIp.get(ip) || [];
+  recent.push(Date.now());
+  commentSubmissionsByIp.set(ip, recent);
+}
+
+function pendingCommentCount() {
+  return db.get('comments').filter({ status: 'pending' }).value().length;
 }
 
 function autoSummary(html) {
