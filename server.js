@@ -130,13 +130,112 @@ app.get('/', (req, res) => {
   res.render('index', { articles, page, totalPages: Math.ceil(total / limit) || 1, total });
 });
 
+function renderArticleWithComments(res, article, extra = {}) {
+  const approvedComments = db.get('comments')
+    .filter({ articleId: article.id, status: 'approved' })
+    .orderBy(['created_at'], ['asc'])
+    .value();
+
+  const topLevelComments = approvedComments.filter(c => c.parentId === null);
+  const commentsByParent = {};
+  approvedComments.forEach(c => {
+    if (c.parentId !== null) {
+      if (!commentsByParent[c.parentId]) commentsByParent[c.parentId] = [];
+      commentsByParent[c.parentId].push(c);
+    }
+  });
+
+  res.render('article', {
+    article,
+    topLevelComments,
+    commentsByParent,
+    commentCount: approvedComments.length,
+    commentError: null,
+    commentDraft: null,
+    commentSubmitted: false,
+    ...extra
+  });
+}
+
 app.get('/article/:id', (req, res) => {
   const article = db.get('articles')
     .find({ id: parseInt(req.params.id), published: true })
     .value();
 
   if (!article) return res.status(404).render('404');
-  res.render('article', { article });
+  renderArticleWithComments(res, article, { commentSubmitted: req.query.commentSubmitted === '1' });
+});
+
+app.post('/article/:id/comments', (req, res) => {
+  const article = db.get('articles')
+    .find({ id: parseInt(req.params.id), published: true })
+    .value();
+
+  if (!article) return res.status(404).render('404');
+
+  const { nickname, email, content, parentId, replyToNickname } = req.body;
+  const trimmedNickname = (nickname || '').trim();
+  const trimmedContent = (content || '').trim();
+  const trimmedEmail = (email || '').trim();
+
+  const errors = [];
+  if (!trimmedNickname || trimmedNickname.length > 50) {
+    errors.push('昵称不能为空，且不超过 50 个字符');
+  }
+  if (!trimmedContent || trimmedContent.length > 1000) {
+    errors.push('评论内容不能为空，且不超过 1000 个字符');
+  }
+  if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    errors.push('邮箱格式不正确');
+  }
+
+  const ip = req.ip;
+  if (errors.length === 0 && isCommentRateLimited(ip)) {
+    errors.push('发送太频繁，请稍后再试');
+  }
+
+  let resolvedParentId = null;
+  let resolvedReplyToNickname = null;
+  if (parentId) {
+    const parentComment = db.get('comments')
+      .find({ id: parseInt(parentId), articleId: article.id, parentId: null })
+      .value();
+    if (parentComment) {
+      resolvedParentId = parentComment.id;
+      const trimmedReplyTo = (replyToNickname || '').trim();
+      resolvedReplyToNickname = (trimmedReplyTo && trimmedReplyTo.length <= 50) ? trimmedReplyTo : parentComment.nickname;
+    }
+  }
+
+  if (errors.length > 0) {
+    return renderArticleWithComments(res, article, {
+      commentError: errors.join('；'),
+      commentDraft: {
+        nickname: trimmedNickname,
+        email: trimmedEmail,
+        content: trimmedContent,
+        parentId: resolvedParentId,
+        replyToNickname: resolvedReplyToNickname
+      }
+    });
+  }
+
+  const comment = {
+    id: nextCommentId(),
+    articleId: article.id,
+    parentId: resolvedParentId,
+    replyToNickname: resolvedReplyToNickname,
+    nickname: trimmedNickname,
+    email: trimmedEmail || null,
+    content: trimmedContent,
+    status: 'pending',
+    created_at: now(),
+    ip
+  };
+
+  db.get('comments').push(comment).write();
+  recordCommentSubmission(ip);
+  res.redirect(`/article/${article.id}?commentSubmitted=1#comments`);
 });
 
 // ─── Admin Auth ───────────────────────────────────────────────────────────────
@@ -243,6 +342,45 @@ app.post('/admin/articles/:id/delete', requireAuth, (req, res) => {
   const id = parseInt(req.params.id);
   db.get('articles').remove({ id }).write();
   res.redirect('/admin');
+});
+
+// ─── Admin Comments ───────────────────────────────────────────────────────────
+app.get('/admin/comments', requireAuth, (req, res) => {
+  const filter = req.query.status || 'pending';
+  const comments = db.get('comments')
+    .filter(c => filter === 'all' ? true : c.status === filter)
+    .orderBy(['created_at'], ['desc'])
+    .value();
+
+  // Attach article titles
+  const commentsWithArticle = comments.map(c => {
+    const article = db.get('articles').find({ id: c.articleId }).value();
+    return { ...c, articleTitle: article ? article.title : '(已删除)' };
+  });
+
+  res.render('admin/comments', {
+    comments: commentsWithArticle,
+    filter,
+    pendingCount: pendingCommentCount()
+  });
+});
+
+app.post('/admin/comments/:id/approve', requireAuth, (req, res) => {
+  db.get('comments').find({ id: parseInt(req.params.id) })
+    .assign({ status: 'approved' }).write();
+  res.redirect(req.get('Referer') || '/admin/comments');
+});
+
+app.post('/admin/comments/:id/reject', requireAuth, (req, res) => {
+  db.get('comments').find({ id: parseInt(req.params.id) })
+    .assign({ status: 'rejected' }).write();
+  res.redirect(req.get('Referer') || '/admin/comments');
+});
+
+app.post('/admin/comments/:id/delete', requireAuth, (req, res) => {
+  const id = parseInt(req.params.id);
+  db.get('comments').remove(c => c.id === id || c.parentId === id).write();
+  res.redirect(req.get('Referer') || '/admin/comments');
 });
 
 // ─── 404 ─────────────────────────────────────────────────────────────────────
