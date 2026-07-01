@@ -17,8 +17,7 @@ db.defaults({
   meta: { nextArticleId: 1, nextCommentId: 1 }
 }).write();
 
-// db.defaults() merges shallowly (lodash.defaults), so an existing top-level
-// "meta" object from before this feature won't pick up nextCommentId on its own.
+// Patch existing data that predates nextCommentId
 if (db.get('meta.nextCommentId').value() === undefined) {
   db.set('meta.nextCommentId', 1).write();
 }
@@ -75,25 +74,21 @@ function nextCommentId() {
   return id;
 }
 
-// ─── Comment rate limiting (in-memory, resets on restart) ────────────────────
-const COMMENT_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
-const COMMENT_RATE_LIMIT_MAX = 3;
-const commentSubmissionsByIp = new Map();
-
-function isCommentRateLimited(ip) {
-  const cutoff = Date.now() - COMMENT_RATE_LIMIT_WINDOW_MS;
-  const recent = (commentSubmissionsByIp.get(ip) || []).filter(t => t > cutoff);
-  commentSubmissionsByIp.set(ip, recent);
-  return recent.length >= COMMENT_RATE_LIMIT_MAX;
+// In-memory rate limit: max 3 comments per IP per 5 minutes
+const rateLimitMap = new Map();
+function isRateLimited(ip) {
+  const cutoff = Date.now() - 5 * 60 * 1000;
+  const times = (rateLimitMap.get(ip) || []).filter(t => t > cutoff);
+  rateLimitMap.set(ip, times);
+  return times.length >= 3;
+}
+function recordSubmission(ip) {
+  const times = rateLimitMap.get(ip) || [];
+  times.push(Date.now());
+  rateLimitMap.set(ip, times);
 }
 
-function recordCommentSubmission(ip) {
-  const recent = commentSubmissionsByIp.get(ip) || [];
-  recent.push(Date.now());
-  commentSubmissionsByIp.set(ip, recent);
-}
-
-function pendingCommentCount() {
+function pendingCount() {
   return db.get('comments').filter({ status: 'pending' }).value().length;
 }
 
@@ -130,112 +125,85 @@ app.get('/', (req, res) => {
   res.render('index', { articles, page, totalPages: Math.ceil(total / limit) || 1, total });
 });
 
-function renderArticleWithComments(res, article, extra = {}) {
-  const approvedComments = db.get('comments')
-    .filter({ articleId: article.id, status: 'approved' })
-    .orderBy(['created_at'], ['asc'])
-    .value();
-
-  const topLevelComments = approvedComments.filter(c => c.parentId === null);
-  const commentsByParent = {};
-  approvedComments.forEach(c => {
-    if (c.parentId !== null) {
-      if (!commentsByParent[c.parentId]) commentsByParent[c.parentId] = [];
-      commentsByParent[c.parentId].push(c);
-    }
-  });
-
-  res.render('article', {
-    article,
-    topLevelComments,
-    commentsByParent,
-    commentCount: approvedComments.length,
-    commentError: null,
-    commentDraft: null,
-    commentSubmitted: false,
-    ...extra
-  });
-}
-
 app.get('/article/:id', (req, res) => {
   const article = db.get('articles')
     .find({ id: parseInt(req.params.id), published: true })
     .value();
-
   if (!article) return res.status(404).render('404');
-  renderArticleWithComments(res, article, { commentSubmitted: req.query.commentSubmitted === '1' });
+
+  const approved = db.get('comments')
+    .filter({ articleId: article.id, status: 'approved' })
+    .orderBy(['created_at'], ['asc'])
+    .value();
+
+  const topLevel = approved.filter(c => !c.parentId);
+  const byParent = {};
+  approved.filter(c => c.parentId).forEach(c => {
+    (byParent[c.parentId] = byParent[c.parentId] || []).push(c);
+  });
+
+  res.render('article', {
+    article,
+    topLevel,
+    byParent,
+    commentCount: approved.length,
+    submitted: req.query.submitted === '1',
+    commentError: null,
+    draft: null
+  });
 });
 
 app.post('/article/:id/comments', (req, res) => {
   const article = db.get('articles')
     .find({ id: parseInt(req.params.id), published: true })
     .value();
-
   if (!article) return res.status(404).render('404');
 
-  const { nickname, email, content, parentId, replyToNickname } = req.body;
-  const trimmedNickname = (nickname || '').trim();
-  const trimmedContent = (content || '').trim();
-  const trimmedEmail = (email || '').trim();
+  const nickname = (req.body.nickname || '').trim();
+  const content  = (req.body.content  || '').trim();
+  const email    = (req.body.email    || '').trim();
+  const parentId = req.body.parentId ? parseInt(req.body.parentId) : null;
 
   const errors = [];
-  if (!trimmedNickname || trimmedNickname.length > 50) {
-    errors.push('昵称不能为空，且不超过 50 个字符');
-  }
-  if (!trimmedContent || trimmedContent.length > 1000) {
-    errors.push('评论内容不能为空，且不超过 1000 个字符');
-  }
-  if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-    errors.push('邮箱格式不正确');
-  }
+  if (!nickname || nickname.length > 50)   errors.push('昵称不能为空，且不超过 50 字');
+  if (!content  || content.length  > 1000) errors.push('内容不能为空，且不超过 1000 字');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push('邮箱格式不正确');
+  if (!errors.length && isRateLimited(req.ip)) errors.push('提交太频繁，请稍后再试');
 
-  const ip = req.ip;
-  if (errors.length === 0 && isCommentRateLimited(ip)) {
-    errors.push('发送太频繁，请稍后再试');
-  }
-
-  let resolvedParentId = null;
-  let resolvedReplyToNickname = null;
-  if (parentId) {
-    const parentComment = db.get('comments')
-      .find({ id: parseInt(parentId), articleId: article.id, parentId: null })
-      .value();
-    if (parentComment) {
-      resolvedParentId = parentComment.id;
-      const trimmedReplyTo = (replyToNickname || '').trim();
-      resolvedReplyToNickname = (trimmedReplyTo && trimmedReplyTo.length <= 50) ? trimmedReplyTo : parentComment.nickname;
-    }
-  }
-
-  if (errors.length > 0) {
-    return renderArticleWithComments(res, article, {
-      commentError: errors.join('；'),
-      commentDraft: {
-        nickname: trimmedNickname,
-        email: trimmedEmail,
-        content: trimmedContent,
-        parentId: resolvedParentId,
-        replyToNickname: resolvedReplyToNickname
-      }
+  const renderWithError = (msg) => {
+    const approved = db.get('comments')
+      .filter({ articleId: article.id, status: 'approved' })
+      .orderBy(['created_at'], ['asc']).value();
+    const topLevel = approved.filter(c => !c.parentId);
+    const byParent = {};
+    approved.filter(c => c.parentId).forEach(c => {
+      (byParent[c.parentId] = byParent[c.parentId] || []).push(c);
     });
-  }
-
-  const comment = {
-    id: nextCommentId(),
-    articleId: article.id,
-    parentId: resolvedParentId,
-    replyToNickname: resolvedReplyToNickname,
-    nickname: trimmedNickname,
-    email: trimmedEmail || null,
-    content: trimmedContent,
-    status: 'pending',
-    created_at: now(),
-    ip
+    res.render('article', {
+      article, topLevel, byParent,
+      commentCount: approved.length,
+      submitted: false,
+      commentError: msg,
+      draft: { nickname, content, email, parentId }
+    });
   };
 
-  db.get('comments').push(comment).write();
-  recordCommentSubmission(ip);
-  res.redirect(`/article/${article.id}?commentSubmitted=1#comments`);
+  if (errors.length) return renderWithError(errors.join('；'));
+
+  db.get('comments').push({
+    id: nextCommentId(),
+    articleId: article.id,
+    parentId,
+    nickname,
+    email: email || null,
+    content,
+    status: 'pending',
+    created_at: now(),
+    ip: req.ip
+  }).write();
+
+  recordSubmission(req.ip);
+  res.redirect(`/article/${article.id}?submitted=1#comments`);
 });
 
 // ─── Admin Auth ───────────────────────────────────────────────────────────────
@@ -346,41 +314,36 @@ app.post('/admin/articles/:id/delete', requireAuth, (req, res) => {
 
 // ─── Admin Comments ───────────────────────────────────────────────────────────
 app.get('/admin/comments', requireAuth, (req, res) => {
-  const filter = req.query.status || 'pending';
+  const filter = ['pending', 'approved', 'rejected'].includes(req.query.status)
+    ? req.query.status : 'pending';
+
   const comments = db.get('comments')
-    .filter(c => filter === 'all' ? true : c.status === filter)
+    .filter({ status: filter })
     .orderBy(['created_at'], ['desc'])
-    .value();
+    .value()
+    .map(c => {
+      const a = db.get('articles').find({ id: c.articleId }).value();
+      return { ...c, articleTitle: a ? a.title : '(已删除)' };
+    });
 
-  // Attach article titles
-  const commentsWithArticle = comments.map(c => {
-    const article = db.get('articles').find({ id: c.articleId }).value();
-    return { ...c, articleTitle: article ? article.title : '(已删除)' };
-  });
-
-  res.render('admin/comments', {
-    comments: commentsWithArticle,
-    filter,
-    pendingCount: pendingCommentCount()
-  });
+  res.render('admin/comments', { comments, filter, pendingCount: pendingCount() });
 });
 
 app.post('/admin/comments/:id/approve', requireAuth, (req, res) => {
-  db.get('comments').find({ id: parseInt(req.params.id) })
-    .assign({ status: 'approved' }).write();
-  res.redirect(req.get('Referer') || '/admin/comments');
+  db.get('comments').find({ id: parseInt(req.params.id) }).assign({ status: 'approved' }).write();
+  res.redirect('back');
 });
 
 app.post('/admin/comments/:id/reject', requireAuth, (req, res) => {
-  db.get('comments').find({ id: parseInt(req.params.id) })
-    .assign({ status: 'rejected' }).write();
-  res.redirect(req.get('Referer') || '/admin/comments');
+  db.get('comments').find({ id: parseInt(req.params.id) }).assign({ status: 'rejected' }).write();
+  res.redirect('back');
 });
 
 app.post('/admin/comments/:id/delete', requireAuth, (req, res) => {
   const id = parseInt(req.params.id);
+  // Also remove child replies
   db.get('comments').remove(c => c.id === id || c.parentId === id).write();
-  res.redirect(req.get('Referer') || '/admin/comments');
+  res.redirect('back');
 });
 
 // ─── 404 ─────────────────────────────────────────────────────────────────────

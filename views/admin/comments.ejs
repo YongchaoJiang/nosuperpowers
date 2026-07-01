@@ -1,0 +1,105 @@
+<%- include('../partials/head', { pageTitle: '评论管理' }) %>
+
+<div class="admin-layout">
+
+  <header class="admin-header">
+    <div class="admin-header-inner">
+      <div class="admin-brand">
+        <span class="logo-icon">✦</span>
+        <span>博客后台</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="/" class="nav-link" target="_blank">查看博客 ↗</a>
+        <a href="/admin" class="nav-link">文章管理</a>
+        <a href="/admin/comments" class="nav-link" style="color:#fff">
+          评论管理<% if (pendingCount > 0) { %> <span class="nav-badge"><%= pendingCount %></span><% } %>
+        </a>
+        <a href="/admin/logout" class="nav-link nav-link-ghost">退出 (<%= adminUser %>)</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <div class="admin-container">
+
+      <div class="admin-page-header">
+        <h1>评论管理</h1>
+        <div class="filter-tabs">
+          <a href="?status=pending"  class="filter-tab <%= filter === 'pending'  ? 'active' : '' %>">
+            待审核<% if (pendingCount > 0) { %> <span class="tab-badge"><%= pendingCount %></span><% } %>
+          </a>
+          <a href="?status=approved" class="filter-tab <%= filter === 'approved' ? 'active' : '' %>">已通过</a>
+          <a href="?status=rejected" class="filter-tab <%= filter === 'rejected' ? 'active' : '' %>">已拒绝</a>
+        </div>
+      </div>
+
+      <% if (comments.length === 0) { %>
+        <div class="empty-state">
+          <div class="empty-icon">💬</div>
+          <h2><%= filter === 'pending' ? '暂无待审核评论' : '该分类下没有评论' %></h2>
+        </div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table class="articles-table">
+            <thead>
+              <tr>
+                <th>评论者</th>
+                <th>评论内容</th>
+                <th>所属文章</th>
+                <th class="col-date">时间</th>
+                <th class="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% comments.forEach(c => { %>
+                <tr>
+                  <td>
+                    <div class="commenter-info">
+                      <div class="commenter-avatar"><%= c.nickname.charAt(0).toUpperCase() %></div>
+                      <div>
+                        <div class="commenter-name"><%= c.nickname %></div>
+                        <% if (c.email) { %><div class="commenter-email"><%= c.email %></div><% } %>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="comment-preview-cell">
+                    <% if (c.parentId) { %><span class="reply-label">↩ 回复</span> <% } %>
+                    <%= c.content.length > 80 ? c.content.slice(0, 80) + '…' : c.content %>
+                  </td>
+                  <td>
+                    <a href="/article/<%= c.articleId %>" target="_blank" class="article-link"><%= c.articleTitle %></a>
+                  </td>
+                  <td class="col-date">
+                    <%= new Date(c.created_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) %>
+                  </td>
+                  <td class="col-actions">
+                    <div class="action-buttons">
+                      <% if (c.status !== 'approved') { %>
+                        <form method="POST" action="/admin/comments/<%= c.id %>/approve" style="display:inline">
+                          <button class="action-btn action-approve">通过</button>
+                        </form>
+                      <% } %>
+                      <% if (c.status !== 'rejected') { %>
+                        <form method="POST" action="/admin/comments/<%= c.id %>/reject" style="display:inline">
+                          <button class="action-btn action-toggle">拒绝</button>
+                        </form>
+                      <% } %>
+                      <form method="POST" action="/admin/comments/<%= c.id %>/delete" style="display:inline"
+                        onsubmit="return confirm('确认删除此评论？')">
+                        <button class="action-btn action-delete">删除</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

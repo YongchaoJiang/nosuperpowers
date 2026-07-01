@@ -18,6 +18,42 @@
     }
   ],
   "meta": {
-    "nextArticleId": 2
-  }
+    "nextArticleId": 2,
+    "nextCommentId": 10
+  },
+  "comments": [
+    {
+      "id": 7,
+      "articleId": 1,
+      "parentId": null,
+      "nickname": "jiang",
+      "email": "ycjiang2009@hotmail.com",
+      "content": "我的想法是重构",
+      "status": "pending",
+      "created_at": "2026-07-01T06:12:09.879Z",
+      "ip": "::1"
+    },
+    {
+      "id": 8,
+      "articleId": 1,
+      "parentId": null,
+      "nickname": "测试用户",
+      "email": null,
+      "content": "这篇文章写得很好，内容详尽，受益匪浅！",
+      "status": "approved",
+      "created_at": "2026-07-01T06:29:01.765Z",
+      "ip": "::1"
+    },
+    {
+      "id": 9,
+      "articleId": 1,
+      "parentId": null,
+      "nickname": "Jiang",
+      "email": "ycjiang2009@hotmail.com",
+      "content": "我的测试评论，在哪里可以看到待审核",
+      "status": "pending",
+      "created_at": "2026-07-01T06:33:26.662Z",
+      "ip": "::1"
+    }
+  ]
 }

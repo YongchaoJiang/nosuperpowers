@@ -21,30 +21,120 @@
 <main class="main-content">
   <div class="container article-container">
 
-    <nav class="breadcrumb">
-      <a href="/">← 返回首页</a>
-    </nav>
+    <nav class="breadcrumb"><a href="/">← 返回首页</a></nav>
 
     <article class="article-full">
       <header class="article-header">
         <h1 class="article-heading"><%= article.title %></h1>
         <div class="article-meta-bar">
-          <time>
-            发布于 <%= new Date(article.created_at).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) %>
-          </time>
+          <time>发布于 <%= new Date(article.created_at).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) %></time>
           <% if (article.updated_at !== article.created_at) { %>
             <span>·</span>
-            <time>
-              更新于 <%= new Date(article.updated_at).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) %>
-            </time>
+            <time>更新于 <%= new Date(article.updated_at).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) %></time>
           <% } %>
+          <span>·</span>
+          <span><%= commentCount %> 条评论</span>
         </div>
       </header>
-
-      <div class="article-content ql-content">
-        <%- article.content %>
-      </div>
+      <div class="article-content ql-content"><%- article.content %></div>
     </article>
+
+    <!-- ─── Comments ───────────────────────────────────────── -->
+    <section class="comments-section" id="comments">
+
+      <h2 class="comments-heading">
+        评论
+        <span class="comment-count-badge"><%= commentCount %></span>
+      </h2>
+
+      <% if (submitted) { %>
+        <div class="alert alert-success">✓ 评论已提交，审核通过后将显示。</div>
+      <% } %>
+
+      <!-- Comment list -->
+      <% if (topLevel.length === 0) { %>
+        <p class="no-comments">还没有评论，来发表第一条吧！</p>
+      <% } else { %>
+        <div class="comment-list">
+          <% topLevel.forEach(c => { %>
+            <div class="comment-item" id="comment-<%= c.id %>">
+              <div class="comment-avatar"><%= c.nickname.charAt(0).toUpperCase() %></div>
+              <div class="comment-body">
+                <div class="comment-meta">
+                  <strong class="comment-author"><%= c.nickname %></strong>
+                  <time class="comment-time"><%= new Date(c.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) %></time>
+                </div>
+                <p class="comment-content"><%= c.content %></p>
+                <button class="reply-btn" data-id="<%= c.id %>" data-name="<%= c.nickname %>">回复</button>
+
+                <% const replies = byParent[c.id] || []; %>
+                <% if (replies.length) { %>
+                  <div class="reply-list">
+                    <% replies.forEach(r => { %>
+                      <div class="comment-item reply-item">
+                        <div class="comment-avatar comment-avatar-sm"><%= r.nickname.charAt(0).toUpperCase() %></div>
+                        <div class="comment-body">
+                          <div class="comment-meta">
+                            <strong class="comment-author"><%= r.nickname %></strong>
+                            <span class="reply-to">回复 @<%= c.nickname %></span>
+                            <time class="comment-time"><%= new Date(r.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) %></time>
+                          </div>
+                          <p class="comment-content"><%= r.content %></p>
+                        </div>
+                      </div>
+                    <% }) %>
+                  </div>
+                <% } %>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      <% } %>
+
+      <!-- Comment form -->
+      <div class="comment-form-wrap">
+        <h3 class="comment-form-title" id="formTitle">发表评论</h3>
+
+        <form action="/article/<%= article.id %>/comments" method="POST" class="comment-form">
+          <input type="hidden" name="parentId" id="parentId" value="<%= draft && draft.parentId ? draft.parentId : '' %>">
+
+          <div id="replyBar" class="reply-bar" style="display:none">
+            回复 <strong id="replyName"></strong>
+            <button type="button" id="cancelReply">取消</button>
+          </div>
+
+          <% if (commentError) { %>
+            <div class="alert alert-error"><span>⚠</span> <%= commentError %></div>
+          <% } %>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="nickname">昵称 <span class="required">*</span></label>
+              <input type="text" id="nickname" name="nickname" maxlength="50" required
+                value="<%= draft ? draft.nickname : '' %>" placeholder="您的昵称">
+            </div>
+            <div class="form-group">
+              <label for="email">邮箱 <span class="optional">（选填，不公开）</span></label>
+              <input type="email" id="email" name="email"
+                value="<%= draft ? draft.email : '' %>" placeholder="your@email.com">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="content">内容 <span class="required">*</span></label>
+            <textarea id="content" name="content" rows="4" maxlength="1000" required
+              placeholder="写下您的想法..."><%= draft ? draft.content : '' %></textarea>
+            <div class="char-count"><span id="charCount"><%= draft ? draft.content.length : 0 %></span> / 1000</div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">提交评论</button>
+            <span class="form-hint">评论需审核后显示</span>
+          </div>
+        </form>
+      </div>
+
+    </section>
 
     <div class="article-nav">
       <a href="/" class="btn btn-outline">← 返回文章列表</a>
@@ -52,5 +142,41 @@
 
   </div>
 </main>
+
+<script>
+  // Character counter
+  const ta = document.getElementById('content');
+  const cc = document.getElementById('charCount');
+  ta.addEventListener('input', () => cc.textContent = ta.value.length);
+
+  // Reply wiring
+  document.querySelectorAll('.reply-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('parentId').value = btn.dataset.id;
+      document.getElementById('replyName').textContent = btn.dataset.name;
+      document.getElementById('replyBar').style.display = 'flex';
+      document.getElementById('formTitle').textContent = '回复评论';
+      document.querySelector('.comment-form-wrap').scrollIntoView({ behavior: 'smooth' });
+      document.getElementById('content').focus();
+    });
+  });
+
+  document.getElementById('cancelReply').addEventListener('click', () => {
+    document.getElementById('parentId').value = '';
+    document.getElementById('replyBar').style.display = 'none';
+    document.getElementById('formTitle').textContent = '发表评论';
+  });
+
+  // Restore reply state after validation error
+  <% if (draft && draft.parentId) { %>
+    const parentComment = document.getElementById('comment-<%= draft.parentId %>');
+    if (parentComment) {
+      const name = parentComment.querySelector('.comment-author').textContent;
+      document.getElementById('replyName').textContent = name;
+      document.getElementById('replyBar').style.display = 'flex';
+      document.getElementById('formTitle').textContent = '回复评论';
+    }
+  <% } %>
+</script>
 
 <%- include('partials/footer') %>
