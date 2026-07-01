@@ -1,0 +1,75 @@
+<%- include('partials/head', { pageTitle: '首页' }) %>
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a href="/" class="site-logo">
+      <span class="logo-icon">✦</span>
+      <span class="logo-text">我的博客</span>
+    </a>
+    <nav class="header-nav">
+      <% if (isAdmin) { %>
+        <a href="/admin" class="nav-link">后台管理</a>
+        <a href="/admin/logout" class="nav-link nav-link-ghost">退出</a>
+      <% } else { %>
+        <a href="/admin/login" class="nav-link nav-link-primary">管理员登录</a>
+      <% } %>
+    </nav>
+  </div>
+</header>
+
+<main class="main-content">
+  <div class="container">
+
+    <% if (articles.length === 0) { %>
+      <div class="empty-state">
+        <div class="empty-icon">📝</div>
+        <h2>暂无文章</h2>
+        <p>还没有发布任何文章，请稍后再来。</p>
+        <% if (isAdmin) { %>
+          <a href="/admin/articles/new" class="btn btn-primary">发布第一篇文章</a>
+        <% } %>
+      </div>
+    <% } else { %>
+      <div class="page-hero">
+        <h1>最新文章</h1>
+        <p>共 <%= total %> 篇文章</p>
+      </div>
+
+      <div class="article-grid">
+        <% articles.forEach(article => { %>
+          <article class="article-card">
+            <div class="article-card-body">
+              <h2 class="article-title">
+                <a href="/article/<%= article.id %>"><%= article.title %></a>
+              </h2>
+              <% if (article.summary) { %>
+                <p class="article-summary"><%= article.summary %></p>
+              <% } %>
+              <div class="article-meta">
+                <time class="article-date">
+                  <%= new Date(article.created_at).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) %>
+                </time>
+                <a href="/article/<%= article.id %>" class="read-more">阅读全文 →</a>
+              </div>
+            </div>
+          </article>
+        <% }) %>
+      </div>
+
+      <% if (totalPages > 1) { %>
+        <nav class="pagination">
+          <% if (page > 1) { %>
+            <a href="/?page=<%= page - 1 %>" class="page-btn">← 上一页</a>
+          <% } %>
+          <span class="page-info"><%= page %> / <%= totalPages %></span>
+          <% if (page < totalPages) { %>
+            <a href="/?page=<%= page + 1 %>" class="page-btn">下一页 →</a>
+          <% } %>
+        </nav>
+      <% } %>
+    <% } %>
+
+  </div>
+</main>
+
+<%- include('partials/footer') %>

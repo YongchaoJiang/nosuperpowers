@@ -1,0 +1,175 @@
+<%- include('../partials/head', { pageTitle: '后台管理' }) %>
+
+<div class="admin-layout">
+
+  <header class="admin-header">
+    <div class="admin-header-inner">
+      <div class="admin-brand">
+        <span class="logo-icon">✦</span>
+        <span>博客后台</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="/" class="nav-link" target="_blank">查看博客 ↗</a>
+        <a href="/admin/articles/new" class="btn btn-primary btn-sm">+ 新建文章</a>
+        <a href="/admin/logout" class="nav-link nav-link-ghost">退出 (<%= adminUser %>)</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <div class="admin-container">
+
+      <div class="admin-page-header">
+        <h1>文章管理</h1>
+        <div class="stats">
+          <span class="stat">
+            共 <strong><%= articles.length %></strong> 篇文章
+          </span>
+          <span class="stat">
+            已发布 <strong><%= articles.filter(a => a.published).length %></strong> 篇
+          </span>
+          <span class="stat">
+            草稿 <strong><%= articles.filter(a => !a.published).length %></strong> 篇
+          </span>
+        </div>
+      </div>
+
+      <% if (articles.length === 0) { %>
+        <div class="empty-state">
+          <div class="empty-icon">📝</div>
+          <h2>还没有文章</h2>
+          <p>点击右上角"新建文章"开始写作</p>
+        </div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table class="articles-table">
+            <thead>
+              <tr>
+                <th>标题</th>
+                <th class="col-status">状态</th>
+                <th class="col-date">创建时间</th>
+                <th class="col-date">更新时间</th>
+                <th class="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% articles.forEach(article => { %>
+                <tr data-id="<%= article.id %>">
+                  <td class="col-title">
+                    <% if (article.published) { %>
+                      <a href="/article/<%= article.id %>" target="_blank" class="article-link"><%= article.title %></a>
+                    <% } else { %>
+                      <span class="article-link-draft"><%= article.title %></span>
+                    <% } %>
+                  </td>
+                  <td class="col-status">
+                    <span class="status-badge <%= article.published ? 'status-published' : 'status-draft' %>">
+                      <%= article.published ? '已发布' : '草稿' %>
+                    </span>
+                  </td>
+                  <td class="col-date">
+                    <%= new Date(article.created_at).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) %>
+                  </td>
+                  <td class="col-date">
+                    <%= new Date(article.updated_at).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) %>
+                  </td>
+                  <td class="col-actions">
+                    <div class="action-buttons">
+                      <a href="/admin/articles/<%= article.id %>/edit" class="action-btn action-edit">编辑</a>
+                      <button
+                        class="action-btn action-toggle"
+                        data-id="<%= article.id %>"
+                        data-published="<%= article.published %>"
+                      >
+                        <%= article.published ? '取消发布' : '发布' %>
+                      </button>
+                      <button
+                        class="action-btn action-delete"
+                        data-id="<%= article.id %>"
+                        data-title="<%= article.title %>"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+
+    </div>
+  </main>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="modal-overlay" id="deleteModal" style="display:none">
+  <div class="modal">
+    <h3>确认删除</h3>
+    <p>确定要删除文章《<span id="deleteTitle"></span>》吗？此操作不可恢复。</p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="cancelDelete">取消</button>
+      <form id="deleteForm" method="POST">
+        <button type="submit" class="btn btn-danger">确认删除</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Toggle publish status
+  document.querySelectorAll('.action-toggle').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const res = await fetch(`/admin/articles/${id}/toggle-publish`, { method: 'POST' });
+      const data = await res.json();
+
+      const row = btn.closest('tr');
+      const badge = row.querySelector('.status-badge');
+      const titleEl = row.querySelector('.article-link, .article-link-draft');
+      const published = data.published;
+
+      badge.textContent = published ? '已发布' : '草稿';
+      badge.className = 'status-badge ' + (published ? 'status-published' : 'status-draft');
+      btn.textContent = published ? '取消发布' : '发布';
+      btn.dataset.published = published;
+
+      // Update title link
+      if (published) {
+        const a = document.createElement('a');
+        a.href = `/article/${id}`;
+        a.target = '_blank';
+        a.className = 'article-link';
+        a.textContent = titleEl.textContent;
+        titleEl.replaceWith(a);
+      } else {
+        const span = document.createElement('span');
+        span.className = 'article-link-draft';
+        span.textContent = titleEl.textContent;
+        titleEl.replaceWith(span);
+      }
+    });
+  });
+
+  // Delete article
+  const modal = document.getElementById('deleteModal');
+  document.querySelectorAll('.action-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('deleteTitle').textContent = btn.dataset.title;
+      document.getElementById('deleteForm').action = `/admin/articles/${btn.dataset.id}/delete`;
+      modal.style.display = 'flex';
+    });
+  });
+
+  document.getElementById('cancelDelete').addEventListener('click', () => {
+    modal.style.display = 'none';
+  });
+
+  modal.addEventListener('click', e => {
+    if (e.target === modal) modal.style.display = 'none';
+  });
+</script>
+
+</body>
+</html>

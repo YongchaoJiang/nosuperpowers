@@ -1,0 +1,56 @@
+<%- include('partials/head', { pageTitle: article.title }) %>
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a href="/" class="site-logo">
+      <span class="logo-icon">✦</span>
+      <span class="logo-text">我的博客</span>
+    </a>
+    <nav class="header-nav">
+      <% if (isAdmin) { %>
+        <a href="/admin/articles/<%= article.id %>/edit" class="nav-link">编辑文章</a>
+        <a href="/admin" class="nav-link">后台管理</a>
+        <a href="/admin/logout" class="nav-link nav-link-ghost">退出</a>
+      <% } else { %>
+        <a href="/admin/login" class="nav-link nav-link-primary">管理员登录</a>
+      <% } %>
+    </nav>
+  </div>
+</header>
+
+<main class="main-content">
+  <div class="container article-container">
+
+    <nav class="breadcrumb">
+      <a href="/">← 返回首页</a>
+    </nav>
+
+    <article class="article-full">
+      <header class="article-header">
+        <h1 class="article-heading"><%= article.title %></h1>
+        <div class="article-meta-bar">
+          <time>
+            发布于 <%= new Date(article.created_at).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) %>
+          </time>
+          <% if (article.updated_at !== article.created_at) { %>
+            <span>·</span>
+            <time>
+              更新于 <%= new Date(article.updated_at).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) %>
+            </time>
+          <% } %>
+        </div>
+      </header>
+
+      <div class="article-content ql-content">
+        <%- article.content %>
+      </div>
+    </article>
+
+    <div class="article-nav">
+      <a href="/" class="btn btn-outline">← 返回文章列表</a>
+    </div>
+
+  </div>
+</main>
+
+<%- include('partials/footer') %>

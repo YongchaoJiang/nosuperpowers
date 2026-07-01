@@ -1,0 +1,47 @@
+<%- include('partials/head', { pageTitle: '管理员登录' }) %>
+
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-header">
+      <a href="/" class="back-home">← 返回博客</a>
+      <div class="auth-logo">✦</div>
+      <h1>管理员登录</h1>
+      <p>请输入管理员账号和密码</p>
+    </div>
+
+    <% if (error) { %>
+      <div class="alert alert-error">
+        <span>⚠</span> <%= error %>
+      </div>
+    <% } %>
+
+    <form action="/admin/login" method="POST" class="auth-form">
+      <div class="form-group">
+        <label for="username">用户名</label>
+        <input
+          type="text"
+          id="username"
+          name="username"
+          placeholder="请输入用户名"
+          autocomplete="username"
+          required
+          autofocus
+        >
+      </div>
+      <div class="form-group">
+        <label for="password">密码</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          placeholder="请输入密码"
+          autocomplete="current-password"
+          required
+        >
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">登录</button>
+    </form>
+  </div>
+</div>
+
+<%- include('partials/footer') %>
