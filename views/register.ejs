@@ -1,12 +1,12 @@
-<%- include('partials/head', { pageTitle: '登录' }) %>
+<%- include('partials/head', { pageTitle: '注册账号' }) %>
 
 <div class="auth-page">
   <div class="auth-card">
     <div class="auth-header">
       <a href="/" class="back-home">← 返回博客</a>
       <div class="auth-logo">✦</div>
-      <h1>登录</h1>
-      <p>请输入账号和密码</p>
+      <h1>注册账号</h1>
+      <p>使用邮箱和密码创建一个新账号</p>
     </div>
 
     <% if (error) { %>
@@ -15,15 +15,16 @@
       </div>
     <% } %>
 
-    <form action="/admin/login" method="POST" class="auth-form">
+    <form action="/register" method="POST" class="auth-form">
       <div class="form-group">
-        <label for="username">邮箱 / 用户名</label>
+        <label for="email">邮箱</label>
         <input
-          type="text"
-          id="username"
-          name="username"
-          placeholder="请输入邮箱或用户名"
-          autocomplete="username"
+          type="email"
+          id="email"
+          name="email"
+          placeholder="请输入邮箱"
+          autocomplete="email"
+          value="<%= draft ? draft.email : '' %>"
           required
           autofocus
         >
@@ -34,15 +35,15 @@
           type="password"
           id="password"
           name="password"
-          placeholder="请输入密码"
-          autocomplete="current-password"
+          placeholder="至少 8 位"
+          autocomplete="new-password"
           required
         >
       </div>
-      <button type="submit" class="btn btn-primary btn-full">登录</button>
+      <button type="submit" class="btn btn-primary btn-full">注册</button>
     </form>
 
-    <p class="auth-footer-note">还没有账号？<a href="/register">去注册</a></p>
+    <p class="auth-footer-note">已有账号？<a href="/admin/login">去登录</a></p>
   </div>
 </div>
 

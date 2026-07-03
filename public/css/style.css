@@ -419,6 +419,8 @@ img { max-width: 100%; }
 
 .auth-form { display: flex; flex-direction: column; gap: 20px; }
 
+.auth-footer-note { text-align: center; margin-top: 20px; font-size: .85rem; color: var(--text-muted); }
+
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 
 .form-group label {

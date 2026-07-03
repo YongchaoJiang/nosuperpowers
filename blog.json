@@ -14,12 +14,14 @@
     {
       "id": 1,
       "username": "admin",
-      "password": "$2a$10$ktHU3VjbN0QfzXjM6MMGsOfXi6bqLNpVV1kK4pXBjsFMcfkIdPJ5W"
+      "password": "$2a$10$ktHU3VjbN0QfzXjM6MMGsOfXi6bqLNpVV1kK4pXBjsFMcfkIdPJ5W",
+      "role": "admin"
     }
   ],
   "meta": {
     "nextArticleId": 2,
-    "nextCommentId": 11
+    "nextCommentId": 11,
+    "nextUserId": 7
   },
   "comments": [
     {

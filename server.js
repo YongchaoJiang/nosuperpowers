@@ -14,12 +14,17 @@ db.defaults({
   articles: [],
   users: [],
   comments: [],
-  meta: { nextArticleId: 1, nextCommentId: 1 }
+  meta: { nextArticleId: 1, nextCommentId: 1, nextUserId: 2 }
 }).write();
 
 // Patch existing data that predates nextCommentId
 if (db.get('meta.nextCommentId').value() === undefined) {
   db.set('meta.nextCommentId', 1).write();
+}
+
+// Patch existing data that predates nextUserId
+if (db.get('meta.nextUserId').value() === undefined) {
+  db.set('meta.nextUserId', 2).write();
 }
 
 // Create default admin if not exists
@@ -29,9 +34,16 @@ if (!adminExists) {
   db.get('users').push({
     id: 1,
     username: 'admin',
-    password: hash
+    password: hash,
+    role: 'admin'
   }).write();
   console.log('Default admin created: admin / admin123');
+}
+
+// Patch existing admin record that predates the role field
+const adminUser = db.get('users').find({ username: 'admin' }).value();
+if (adminUser && !adminUser.role) {
+  db.get('users').find({ username: 'admin' }).assign({ role: 'admin' }).write();
 }
 
 // ─── Express setup ────────────────────────────────────────────────────────────
@@ -51,13 +63,13 @@ app.use(session({
 
 // Inject auth info into all views
 app.use((req, res, next) => {
-  res.locals.isAdmin = !!req.session.userId;
+  res.locals.isAdmin = req.session.role === 'admin';
   res.locals.adminUser = req.session.username || null;
   next();
 });
 
 const requireAuth = (req, res, next) => {
-  if (!req.session.userId) return res.redirect('/admin/login');
+  if (req.session.role !== 'admin') return res.redirect('/admin/login');
   next();
 };
 
@@ -71,6 +83,12 @@ function nextId() {
 function nextCommentId() {
   const id = db.get('meta.nextCommentId').value();
   db.set('meta.nextCommentId', id + 1).write();
+  return id;
+}
+
+function nextUserId() {
+  const id = db.get('meta.nextUserId').value();
+  db.set('meta.nextUserId', id + 1).write();
   return id;
 }
 
@@ -206,24 +224,71 @@ app.post('/article/:id/comments', (req, res) => {
   res.redirect(`/article/${article.id}?submitted=1#comments`);
 });
 
+// ─── Registration ─────────────────────────────────────────────────────────────
+app.get('/register', (req, res) => {
+  if (req.session.userId) return res.redirect(req.session.role === 'admin' ? '/admin' : '/');
+  res.render('register', { error: null, draft: null });
+});
+
+app.post('/register', (req, res) => {
+  const email = (req.body.email || '').trim();
+  const password = req.body.password || '';
+
+  const renderWithError = (msg) => res.render('register', { error: msg, draft: { email } });
+
+  if (!email) return renderWithError('邮箱为必填项');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return renderWithError('邮箱格式不正确');
+  if (!password) return renderWithError('密码为必填项');
+  if (password.length < 8) return renderWithError('密码过短，至少需要 8 位');
+
+  const existing = db.get('users').find({ email }).value();
+  if (existing) return renderWithError('该邮箱已被注册');
+
+  if (isRateLimited(req.ip)) return renderWithError('请求太频繁，请稍后再试');
+
+  const user = {
+    id: nextUserId(),
+    email,
+    password: bcrypt.hashSync(password, 10),
+    role: 'user',
+    createdAt: now()
+  };
+  db.get('users').push(user).write();
+  recordSubmission(req.ip);
+
+  req.session.userId = user.id;
+  req.session.role = user.role;
+  res.redirect('/');
+});
+
 // ─── Admin Auth ───────────────────────────────────────────────────────────────
 app.get('/admin/login', (req, res) => {
-  if (req.session.userId) return res.redirect('/admin');
+  if (req.session.userId) return res.redirect(req.session.role === 'admin' ? '/admin' : '/');
   res.render('login', { error: null });
 });
 
 app.post('/admin/login', (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.render('login', { error: '请填写用户名和密码' });
+  if (isRateLimited(req.ip)) {
+    return res.render('login', { error: '尝试次数过多，请稍后再试' });
   }
-  const user = db.get('users').find({ username: username.trim() }).value();
-  if (user && bcrypt.compareSync(password, user.password)) {
-    req.session.userId = user.id;
-    req.session.username = user.username;
-    return res.redirect('/admin');
+
+  const identifier = (req.body.username || '').trim();
+  const password = req.body.password || '';
+  if (!identifier || !password) {
+    return res.render('login', { error: '请填写账号和密码' });
   }
-  res.render('login', { error: '用户名或密码错误' });
+
+  recordSubmission(req.ip);
+
+  const user = db.get('users').find(u => u.username === identifier || u.email === identifier).value();
+  if (!user || !bcrypt.compareSync(password, user.password)) {
+    return res.render('login', { error: '账号或密码错误' });
+  }
+
+  req.session.userId = user.id;
+  req.session.username = user.username || user.email;
+  req.session.role = user.role;
+  res.redirect(user.role === 'admin' ? '/admin' : '/');
 });
 
 app.get('/admin/logout', (req, res) => {
